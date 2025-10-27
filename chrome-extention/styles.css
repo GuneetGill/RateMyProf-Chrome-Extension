@@ -1,0 +1,37 @@
+/* Styles for injected professor info and popup UI */
+
+.prof-rating {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  font-size: 0.85rem;
+  color: #333;
+  display: inline-block;
+  line-height: 1.4;
+}
+
+/* Basic popup styling */
+body {
+  font-family: Arial, sans-serif;
+}
+
+input, button {
+  width: 100%;
+  padding: 5px;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.prof-info {
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 5px;
+  margin-top: 5px;
+  font-size: 0.9em;
+}
+
+.error {
+  color: red;
+  font-size: 0.85em;
+}

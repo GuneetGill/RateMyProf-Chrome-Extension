@@ -1,0 +1,38 @@
+{
+  "name": "RateMyProf-ChromeExtension",
+  "description": "Displays RateMyProfessor ratings beside professor names on the SFU schedule website.",
+  "version": "1.0.0",
+  "manifest_version": 3,
+
+  "action": {
+    "default_popup": "index.html",  // Popup shown when user clicks extension icon
+    "default_icon": "images/icon.png",
+    "default_title": "RateMyProf Extension"
+  },
+
+  "permissions": [
+    "activeTab",  // Access current tab
+    "tabs",       // Interact with tab info
+    "scripting",  // Inject scripts into pages
+    "storage"     // Store user settings if needed
+  ],
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://myschedule.erp.sfu.ca/*"  // Run content.js on all SFU schedule pages
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+
+  "background": {
+    "service_worker": "background.js"  // Handles API calls and background tasks
+  },
+
+  "host_permissions": [
+    "https://myschedule.erp.sfu.ca/*",  // Needed to access SFU pages
+    "http://127.0.0.1:8000/*"          // Needed to access local FastAPI backend
+  ]
+}

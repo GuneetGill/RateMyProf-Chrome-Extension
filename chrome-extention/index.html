@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RateMyProf Extension</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h2>RateMyProf Lookup</h2>
+
+  <!-- Input for manual professor search -->
+  <input type="text" id="profName" placeholder="Enter professor name" />
+  <button id="searchBtn">Search</button>
+  <div id="result"></div>
+
+  <script>
+    const searchBtn = document.getElementById('searchBtn');
+    const profNameInput = document.getElementById('profName');
+    const resultDiv = document.getElementById('result');
+
+    searchBtn.addEventListener('click', () => {
+      const name = profNameInput.value.trim();
+      if (!name) return;
+
+      resultDiv.innerHTML = "Loading...";
+
+      // Send request to background.js to fetch data from FastAPI
+      chrome.runtime.sendMessage(
+        { type: "FETCH_PROFESSOR_BY_NAME", name },
+        (response) => {
+          if (response && response.success && response.data) {
+            const prof = response.data;
+            resultDiv.innerHTML = `
+              <div class="prof-info">
+                <strong>${prof.prof_name}</strong><br>
+                ⭐ ${prof.rating || "N/A"} (${prof.number_of_ratings || 0} ratings)<br>
+                Difficulty: ${prof.difficulty || "N/A"}<br>
+                Would Take Again: ${prof.would_take_again || "N/A"}<br>
+                Department: ${prof.department || "N/A"}
+              </div>
+            `;
+          } else {
+            resultDiv.innerHTML = `<div class="error">No data found for "${name}"</div>`;
+          }
+        }
+      );
+    });
+  </script>
+</body>
+</html>
