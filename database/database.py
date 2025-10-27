@@ -4,35 +4,72 @@ import os
 from dotenv import load_dotenv
 import time
 import random
+import boto3 
+from botocore.exceptions import ClientError
+import json
+import logging
 
-# Load environment variables from .env file
-load_dotenv()
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Get database credentials from environment variables
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
+# # Load environment variables from .env file
+# load_dotenv()
+
+# # Get database credentials from environment variables
+# DB_NAME = os.getenv("DB_NAME")
+# DB_USER = os.getenv("DB_USER")
+# DB_PASSWORD = os.getenv("DB_PASSWORD")
+# DB_HOST = os.getenv("DB_HOST")
+# DB_PORT = os.getenv("DB_PORT")
+
+SECRET_NAME = "rmp-db/secrets"
+AWS_REGION = "us-west-2"
 
 #create connection pool
 connection_pool = None
 
+def get_database_credentials():
+    """Retrieve database credentials from AWS Secrets Manager."""
+    try:
+        # Create a Secrets Manager client
+        session = boto3.session.Session()
+        client = session.client(service_name="secretsmanager", region_name=AWS_REGION)
+        
+        # Fetch the secret
+        secret_value = client.get_secret_value(SecretId=SECRET_NAME)
+        
+        # Parse the JSON secret
+        secret_dict = json.loads(secret_value["SecretString"])
+        logger.info("Database credentials retrieved successfully.")
+        return secret_dict  # Returns a dictionary containing DB credentials
+    
+    except Exception as e:
+        logger.error("Error getting secrets: {e}")
+        return None
+    
+
 def initialize_connection_pool():
     """Initializes the connection pool."""
     global connection_pool
+    db_credentials = get_database_credentials()
+    
+    if not db_credentials:
+        logger.info("Failed to get Database credentials. Failed to initialize connection pool")
+    
     try:
         connection_pool = psycopg2.pool.ThreadedConnectionPool(
             1, 20,  # min and max connections in the pool
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT
+             dbname=db_credentials["dbname"],
+            user=db_credentials["username"],
+            password=db_credentials["password"],
+            host=db_credentials["host"],
+            port=db_credentials["port"]
         )
-        print("Connection pool created successfully")
+        logging.info("Connection pool created successfully")
     except Exception as e:
-        print(f"Error initializing connection pool: {e}")
+        logging.error(f"Error initializing connection pool: {e}")
+        
 
 def get_connection():
     """Returns a connection from the pool."""

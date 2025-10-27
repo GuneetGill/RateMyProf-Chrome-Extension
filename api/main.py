@@ -6,29 +6,40 @@ from mangum import Mangum
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from database import database
 from api.endpoints import professor, department, rating
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup and shutdown events using a context manager."""
+    logger.info("Initializing database connection pool")
+    try:
+        database.initialize_connection_pool()
+        yield  # Application runs while execution is suspended here
+    except Exception as e:
+        logger.error(f"Error during lifespan: {e}")
+        raise e
+    finally:
+        logger.info("Closing database connection pool")
+        database.close_pool()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=['*'], 
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Manage startup and shutdown events using a context manager."""
-    database.initialize_connection_pool()
-    yield  # Application runs while execution is suspended here
-    database.close_pool()
-
-app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def root():
@@ -38,7 +49,7 @@ app.include_router(professor.router)
 app.include_router(department.router)
 app.include_router(rating.router)
 
-# The magic that allows the integration with AWS Lambda
+#The magic that allows the integration with AWS Lambda
 handler = Mangum(app)
 
 # if __name__ == "__main__":
