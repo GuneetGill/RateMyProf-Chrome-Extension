@@ -1,0 +1,37 @@
+FROM python:3.11-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Headless browser + driver for Selenium
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    chromium-driver \
+    ca-certificates \
+    fonts-liberation \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libgtk-3-0 \
+    libgbm1 \
+    libasound2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxrandr2 \
+    libxdamage1 \
+    libxfixes3 \
+    libxshmfence1 \
+    libx11-xcb1 \
+    libdrm2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY api /app/api
+COPY database /app/database
+COPY populate /app/populate
+
+# Default command prints help; ECS run-task overrides this.
+CMD ["python", "-c", "print('Populator image ready. Override command to run populate scripts.')"]
+

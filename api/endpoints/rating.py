@@ -1,6 +1,15 @@
-from fastapi import APIRouter, HTTPException
+"""
+Rating endpoints.
+
+These endpoints are simple equality matches against values stored in `prof_info`.
+"""
+
+from __future__ import annotations
+
 import sys
 from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
@@ -8,29 +17,39 @@ from database import database
 
 router = APIRouter()
 
+
 @router.get("/search_professor_rating/{rating}")
-def search_professor_rating(rating: float): 
-    """Find all prof's with a specfic rating"""
-    
-    conn = database.get_connection()  # Get connection from the pool
+def search_professor_rating(rating: float):
+    """Return all professors with exactly this rating."""
+    conn = database.get_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection not available.")
 
+    cursor = None
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT prof_id, prof_name, department, rating, number_of_ratings, 
-            top_tags, difficulty, would_take_again 
-            FROM prof_info WHERE rating = %s
-            """, (rating,))  # Safe, efficient, and readable! no sql injection 
-
+        cursor.execute(
+            """
+            SELECT
+                prof_id,
+                prof_name,
+                department,
+                rating,
+                number_of_ratings,
+                top_tags,
+                difficulty,
+                would_take_again
+            FROM prof_info
+            WHERE rating = %s
+            """,
+            (rating,),
+        )
         results = cursor.fetchall()
 
         if not results:
             raise HTTPException(status_code=404, detail=f"'{rating}' not found.")
 
-        # Convert results to a list of dictionaries
-        professors = [
+        return [
             {
                 "prof_id": row[0],
                 "prof_name": row[1],
@@ -39,21 +58,17 @@ def search_professor_rating(rating: float):
                 "number_of_ratings": row[4],
                 "top_tags": row[5],
                 "difficulty": row[6],
-                "would_take_again": row[7]
+                "would_take_again": row[7],
             }
             for row in results
         ]
 
-        return professors  # Return as a list
-
-
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
     finally:
-        if cursor:
+        if cursor is not None:
             cursor.close()
-        if conn:
-            database.release_connection(conn)  # Release connection back to the pool
-
-
+        if conn is not None:
+            database.release_connection(conn)

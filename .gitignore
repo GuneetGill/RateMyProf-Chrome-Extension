@@ -2,3 +2,10 @@ venv
 chromedriver
 .env
 postgres-db-local.session.sql
+
+# CDK / Python build artifacts
+cdk-project/.venv/
+cdk-project/cdk.out/
+**/__pycache__/
+**/*.pyc
+.DS_Store

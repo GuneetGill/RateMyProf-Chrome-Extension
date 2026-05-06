@@ -4,35 +4,81 @@ import os
 from dotenv import load_dotenv
 import time
 import random
+import boto3
+import json
+import logging
 
-# Load environment variables from .env file
-load_dotenv()
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Get database credentials from environment variables
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
+# Load environment variables from .env file (useful for local dev)
+if os.getenv("AWS_EXECUTION_ENV") is None:
+    load_dotenv()
+
+SECRET_NAME = os.environ["SECRET_NAME"]
+AWS_REGION = os.getenv("AWS_REGION") 
+DEFAULT_APP_DB_NAME = "postgres"
 
 #create connection pool
 connection_pool = None
 
+
+def get_database_credentials():
+    """
+    Prefer explicit DB_* env vars (local dev). Otherwise fetch credentials from
+    AWS Secrets Manager using SECRET_NAME.
+    """
+    env_dbname = os.getenv("DB_NAME")
+    env_user = os.getenv("DB_USER")
+    env_password = os.getenv("DB_PASSWORD")
+    env_host = os.getenv("DB_HOST")
+    env_port = os.getenv("DB_PORT")
+    if all([env_dbname, env_user, env_password, env_host, env_port]):
+        return {
+            "dbname": env_dbname,
+            "username": env_user,
+            "password": env_password,
+            "host": env_host,
+            "port": env_port,
+        }
+
+    session = boto3.session.Session()
+    if AWS_REGION:
+        client = session.client("secretsmanager", region_name=AWS_REGION)
+    else:
+        client = session.client("secretsmanager")
+    secret_value = client.get_secret_value(SecretId=SECRET_NAME)
+    # Standard RDS-managed secret: username, password, host, port, dbname, engine, ...
+    db_credentials = json.loads(secret_value["SecretString"])
+    logger.info("Database credentials retrieved successfully.")
+    return db_credentials
+
+
 def initialize_connection_pool():
     """Initializes the connection pool."""
     global connection_pool
-    try:
-        connection_pool = psycopg2.pool.ThreadedConnectionPool(
-            1, 20,  # min and max connections in the pool
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT
-        )
-        print("Connection pool created successfully")
-    except Exception as e:
-        print(f"Error initializing connection pool: {e}")
+    db_credentials = get_database_credentials()
+    if not db_credentials:
+        raise RuntimeError("Database credentials not available.")
+    # RDS secret usually includes dbname; allow env + default if missing.
+    dbname = (
+        db_credentials.get("dbname")
+        or os.getenv("DB_NAME")
+        or DEFAULT_APP_DB_NAME
+    )
+    # RDS uses "username"; psycopg2 uses user=
+    connection_pool = psycopg2.pool.ThreadedConnectionPool(
+        1,
+        20,
+        dbname=dbname,
+        user=db_credentials["username"],
+        password=db_credentials["password"],
+        host=db_credentials["host"],
+        port=db_credentials["port"],
+        sslmode="require",
+    )
+    logger.info("Connection pool created successfully")
 
 def get_connection():
     """Returns a connection from the pool."""
@@ -50,25 +96,22 @@ def release_connection(conn):
 def initialize_database():
     """Ensures the required tables exist before inserting data."""
     global connection_pool
+    db = None
+    cursor = None
     try:
         if connection_pool is None:
-            initialize_connection_pool()  # Ensure the pool is initialized
-        
-        # Get a connection from the pool
+            initialize_connection_pool()
+        if connection_pool is None:
+            raise RuntimeError("Connection pool not initialized after initialize_connection_pool()")
+
         db = connection_pool.getconn()
         cursor = db.cursor()
 
-        # Create tables if they do not exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS webpages(
-                prof_id INTEGER PRIMARY KEY,
-                link TEXT
-            )
-        ''')
-
-        cursor.execute('''
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS prof_info(
                 prof_id INTEGER PRIMARY KEY,
+                link TEXT,
                 prof_name TEXT,
                 department TEXT,
                 rating FLOAT,
@@ -77,18 +120,19 @@ def initialize_database():
                 would_take_again TEXT,
                 top_tags TEXT
             )
-        ''')
+            """
+        )
 
         db.commit()
-        print("Database initialized successfully!")
-
-    except Exception as e:
-        print(f"Error initializing database: {e}")
+        logger.info("Database initialized successfully!")
+    
+    except Exception:
+        logger.exception("Error initializing database")
+        raise
     finally:
-        if cursor:
+        if cursor is not None:
             cursor.close()
-        if db:
-            # Release the connection back to the pool
+        if db is not None:
             release_connection(db)
 
 def insert_prof_links(prof_id_list):
@@ -103,12 +147,11 @@ def insert_prof_links(prof_id_list):
             time.sleep(random.uniform(0.5, 1.5))  # Random delay to avoid detection
             prof_link = f"https://www.ratemyprofessors.com/professor/{item}"
 
-            # Check if prof_id exists
-            cursor.execute("SELECT prof_id FROM webpages WHERE prof_id = %s", (item,))
-            existing_prof_id = cursor.fetchone()
-
-            if not existing_prof_id:
-                cursor.execute("INSERT INTO webpages(prof_id, link) VALUES (%s, %s)", (item, prof_link))
+            cursor.execute("""
+                INSERT INTO prof_info (prof_id, link)
+                VALUES (%s, %s)
+                ON CONFLICT (prof_id) DO NOTHING
+            """, (item, prof_link))
 
         db.commit()
         print("Professor links inserted successfully!")
@@ -140,17 +183,26 @@ def save_data_prof_info_table(prof_info):
         top_tags = prof_info.get('top_tags')
         difficulty = prof_info.get('difficulty')
         would_take_again = prof_info.get('would_take_again')
+        link = prof_info.get('link')
 
         # Insert data into the prof_info table
         cursor.execute("""
             INSERT INTO prof_info(
-                prof_id, prof_name, department, rating, number_of_ratings, 
+                prof_id, link, prof_name, department, rating, number_of_ratings, 
                 top_tags, difficulty, would_take_again
             ) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (prof_id) DO NOTHING
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (prof_id) DO UPDATE SET
+                link = COALESCE(EXCLUDED.link, prof_info.link),
+                prof_name = EXCLUDED.prof_name,
+                department = EXCLUDED.department,
+                rating = EXCLUDED.rating,
+                number_of_ratings = EXCLUDED.number_of_ratings,
+                top_tags = EXCLUDED.top_tags,
+                difficulty = EXCLUDED.difficulty,
+                would_take_again = EXCLUDED.would_take_again
         """, (
-            prof_id, prof_name, department, rating, number_of_ratings, 
+            prof_id, link, prof_name, department, rating, number_of_ratings, 
             top_tags, difficulty, would_take_again
         ))
 
@@ -177,12 +229,14 @@ def get_links():
         db = connection_pool.getconn()
         cursor = db.cursor()
 
-        # Correct SQL query to get all links
-        cursor.execute("SELECT link FROM webpages;")
+        # Get links from prof_info (webpages table removed)
+        cursor.execute("SELECT link FROM prof_info WHERE link IS NOT NULL;")
         webpage_links = cursor.fetchall()
         
         db.commit()
         print("Got web links successfully!")
+        
+        return [link[0] for link in webpage_links]
 
     except Exception as e:
         print(f"Error getting links from database: {e}")
@@ -194,7 +248,7 @@ def get_links():
             # Release the connection back to the pool
             release_connection(db)
 
-    return [link[0] for link in webpage_links]
+   
 
 def get_prof_id():
     """Retrieves all prof id's from the database."""
@@ -207,11 +261,12 @@ def get_prof_id():
         cursor = db.cursor()
 
         # Correct SQL query to get all links
-        cursor.execute("SELECT prof_id FROM webpages;")
+        cursor.execute("SELECT prof_id FROM prof_info;")
         prof_id = cursor.fetchall()
         
         db.commit()
         print("Got prof id's successfully!")
+        return [id[0] for id in prof_id]
 
     except Exception as e:
         print(f"Error getting prof id from database: {e}")
@@ -222,9 +277,6 @@ def get_prof_id():
         if db:
             # Release the connection back to the pool
             release_connection(db)
-
-    return [id[0] for id in prof_id]
-
 
 
 def close_pool():
