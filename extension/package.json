@@ -1,0 +1,12 @@
+{
+  "name": "sfu-rmp-extension",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:js && npm run build:css",
+    "build:js": "npx esbuild src/inject/index.js --bundle --outfile=content/inject_overlay.js --format=iife --platform=browser --legal-comments=none --banner:js=\"/* Bundled IIFE — no import/. Edit src/ and run: npm run build */\"",
+    "build:css": "node -e \"const fs=require('fs'); fs.mkdirSync('content',{recursive:true}); fs.writeFileSync('content/overlay.css', fs.readFileSync('src/styles/badge.css')+fs.readFileSync('src/styles/overlay.css'))\""
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
