@@ -9,3 +9,9 @@ cdk-project/cdk.out/
 **/__pycache__/
 **/*.pyc
 .DS_Store
+
+extension/node_modules/
+
+# Extension build output (regenerate: cd extension && npm run build)
+extension/content/inject_overlay.js
+extension/content/overlay.css

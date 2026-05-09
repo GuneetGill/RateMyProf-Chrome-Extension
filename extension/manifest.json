@@ -3,6 +3,9 @@
   "name": "SFU RMP overlay (dev)",
   "version": "0.1.0",
   "description": "Finds instructor names on SFU enrollment pages and injects a placeholder for RateMyProf UI.",
+  "host_permissions": [
+    "https://mq8gd6t62l.execute-api.us-east-1.amazonaws.com/*"
+  ],
   "content_scripts": [
     {
       "matches": [
